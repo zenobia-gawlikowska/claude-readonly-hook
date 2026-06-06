@@ -179,6 +179,26 @@ expect_block('diff --output=patch.diff a.txt b.txt',                         "di
 expect_block('ls; git push origin main',                                     "; git push")
 expect_block('cat file.log | node -e "require(\'fs\').writeFileSync(\'x\',\'y\')"', "node writeFileSync in pipeline")
 
+section("Flag inspection — less / more / uniq / date")
+expect_approve('cat file.log | less',                                        "less in pipeline — safe")
+expect_approve('less file.log',                                              "less file — safe")
+expect_block('less -o output.txt file.log',                                  "less -o writes log")
+expect_block('less -O output.txt file.log',                                  "less -O overwrites log")
+expect_block('less --log-file=out.txt file.log',                             "less --log-file writes")
+
+expect_approve('cat file.log | more',                                        "more in pipeline — safe")
+expect_block('more -o output.txt file.log',                                  "more -o writes log")
+
+expect_approve('cat file | uniq',                                            "uniq stdin — safe")
+expect_approve('uniq file.txt',                                              "uniq one arg — safe")
+expect_approve('uniq -c file.txt',                                           "uniq -c — safe")
+expect_block('uniq input.txt output.txt',                                    "uniq two positional args — writes")
+
+expect_approve('date',                                                       "bare date — display only")
+expect_approve('date "+%Y-%m-%d"',                                           "date with format — display only")
+expect_approve('date "+%s"',                                                 "date unix timestamp format")
+expect_block('date 0601120025',                                              "date positional — sets clock")
+
 section("Check C — read-only for loops")
 expect_approve(
     'for dir in /Users/zenobia.gawlikowska/Development/ai-devkit/claude/skills/*/; do echo "=== $(basename "$dir") ==="; ls -1 "$dir" | head -20; done',

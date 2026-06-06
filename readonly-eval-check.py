@@ -298,7 +298,24 @@ def is_safe_segment(segment: str) -> bool:
     if lead == "git":
         return is_git_readonly(tokens)
     elif lead == "sort":
+        # sort -o <file> / sort --output=<file> writes to a file
         return not any(t in ("-o", "--output") or t.startswith("--output=") for t in tokens[1:])
+    elif lead in ("less", "more"):
+        # less/more -o/-O/--log-file/--LOG-FILE copies output to a log file
+        return not any(t in ("-o", "-O") or t.startswith(("--log-file", "--LOG-FILE")) for t in tokens[1:])
+    elif lead == "uniq":
+        # uniq [input [output]] — a second positional arg is an output file
+        positional = [t for t in tokens[1:] if not t.startswith("-")]
+        return len(positional) < 2
+    elif lead == "date":
+        # bare date or date "+format" is display-only
+        # a bare positional like "date 0601120025" sets the system clock
+        args = tokens[1:]
+        if not args:
+            return True  # bare date — display only
+        non_flags = [t for t in args if not t.startswith("-")]
+        # Strip surrounding quotes before checking for the + format prefix
+        return all(t.strip("\"'").startswith("+") for t in non_flags)
     elif lead in ("node", "bun", "python3", "python", "deno"):
         inline_code = extract_inline_code(segment.strip())
         return inline_code is not None and not is_mutating(inline_code)
