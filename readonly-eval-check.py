@@ -2,7 +2,7 @@
 """
 PreToolUse hook — auto-approve Bash commands that are demonstrably read-only.
 
-Two independent checks, either of which can approve:
+Three independent checks, either of which can approve:
 
 A) Inline eval (node -e, python3 -c, bun --eval, deno eval, heredocs):
    Extract the inline code and scan for mutating API patterns.
@@ -11,9 +11,16 @@ A) Inline eval (node -e, python3 -c, bun --eval, deno eval, heredocs):
 B) Read-only pipeline:
    Split on pipes / && / || / ; and check that EVERY segment's leading
    command is in the known-safe read-only set.
+   $(...) and `...` command substitutions are extracted and validated
+   recursively — a segment containing a mutating substitution is rejected.
    Approve if every segment is safe.
 
-In both cases: if anything looks mutating or ambiguous → exit 0, no decision,
+C) Read-only for loop:
+   Detect `for VAR in PATTERN; do BODY; done` and validate every statement
+   in the body with the same logic as Check B.
+   Approve if the entire body is safe.
+
+In all cases: if anything looks mutating or ambiguous → exit 0, no decision,
 let the normal permission prompt handle it.
 """
 
@@ -243,15 +250,16 @@ def split_segments(command: str) -> list:
 
 def strip_substitutions(segment: str):
     """
-    Remove $(...) command substitutions from segment, returning
+    Remove $(...) and `...` command substitutions from segment, returning
     (cleaned_text, list_of_inner_commands).
-    Simple single-level extraction — handles the common $(basename "$x") form.
+    Both forms are extracted and validated — a mutating substitution blocks
+    the whole segment even if the outer command is safe.
     """
     inner_cmds = []
     cleaned = []
     i = 0
     while i < len(segment):
-        if segment[i:i+2] == "$(" :
+        if segment[i:i+2] == "$(":
             depth = 1
             j = i + 2
             while j < len(segment) and depth:
@@ -262,6 +270,14 @@ def strip_substitutions(segment: str):
                 j += 1
             inner_cmds.append(segment[i + 2:j - 1].strip())
             i = j
+        elif segment[i] == "`":
+            j = i + 1
+            while j < len(segment) and segment[j] != "`":
+                if segment[j] == "\\" and j + 1 < len(segment):
+                    j += 1  # skip escaped character inside backtick expression
+                j += 1
+            inner_cmds.append(segment[i + 1:j].strip())
+            i = j + 1
         else:
             cleaned.append(segment[i])
             i += 1

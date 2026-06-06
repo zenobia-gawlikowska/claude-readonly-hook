@@ -1,6 +1,10 @@
 # claude-readonly-hook
 
-A [Claude Code](https://claude.ai/code) `PreToolUse` hook that **auto-approves Bash commands that are demonstrably read-only**, so you stop clicking "Yes" on things that obviously can't hurt anything.
+A [Claude Code](https://claude.ai/code) `PreToolUse` hook that **auto-approves commands run via the Bash tool that are demonstrably read-only**, so you stop clicking "Yes" on things that obviously can't hurt anything.
+
+This covers shell pipelines and compound commands, but also inline eval invocations of other runtimes (`node -e`, `python3 -c`, `bun -e`, `deno eval`) that Claude commonly uses to inspect a project.
+
+> **Disclaimer:** This hook operates on a best-effort basis using static pattern matching. It cannot parse all valid shell syntax, and sophisticated or unusual command constructions may be misclassified. You are responsible for reviewing the commands Claude runs in your environment. Auto-approval reduces friction for clearly safe commands — it is not a security boundary.
 
 ---
 
@@ -65,7 +69,7 @@ date  which  type  sort*
 
 **`node`/`bun`/`python3`/`deno` segments inside pipelines** use the same Check A mutation scan on their inline code.
 
-**Command substitutions** `$(...)` are recursively checked — `echo "$(basename "$dir")"` is approved because `basename` is safe.
+**Command substitutions** — both `$(...)` and `` `...` `` forms — are extracted and recursively checked. `echo "$(basename "$dir")"` and `` echo `basename "$dir"` `` are both approved because `basename` is safe; `` echo `git add .` `` is blocked because `git add` is mutating.
 
 A segment is always rejected if it contains `>` file redirect, `tee`, `curl`, `wget`, `rm`, `mv`, `sudo`, `chmod`, `chown`, `dd`.
 
@@ -163,6 +167,10 @@ Exit code `0` = all pass. Exit code `1` = failures (output shows which).
 
 ## Excluded commands and why
 
+The list below is illustrative, not exhaustive. Any command not explicitly in the known-safe set falls through to the normal permission prompt.
+
+**Commands with dangerous flags**
+
 | Command | Why excluded |
 |---|---|
 | `awk` | `print > "file"` writes files; `system("cmd")` executes shell |
@@ -170,6 +178,10 @@ Exit code `0` = all pass. Exit code `1` = failures (output shows which).
 | `diff` | `--output=<file>` writes a patch file |
 | `find` | `-exec`/`-execdir` runs arbitrary commands; `-delete` deletes files |
 | `fd` / `fdfind` | `--exec`/`-x` and `--exec-batch`/`-X` execute arbitrary commands |
+
+**Shell and interpreter invocations**
+
+`bash -c`, `sh -c`, `zsh -c`, `fish -c` and similar embed an arbitrary command string that the hook does not parse — they are never auto-approved and always fall through to the prompt. The same applies to general-purpose scripting interpreters (`perl`, `ruby`, `Rscript`, `lua`, etc.) whose inline-eval forms are not in the known-safe set.
 
 ---
 
