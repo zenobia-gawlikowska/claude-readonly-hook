@@ -94,13 +94,13 @@ The hook is conservative by design: **it only approves what it can prove is safe
 ```bash
 mkdir -p ~/.claude/hooks
 curl -o ~/.claude/hooks/readonly-eval-check.py \
-  https://raw.githubusercontent.com/przeprogramowani/claude-readonly-hook/main/readonly-eval-check.py
+  https://raw.githubusercontent.com/zenobia-gawlikowska/claude-readonly-hook/master/readonly-eval-check.py
 ```
 
 Or clone the repo and copy:
 
 ```bash
-git clone https://github.com/przeprogramowani/claude-readonly-hook.git
+git clone https://github.com/zenobia-gawlikowska/claude-readonly-hook.git
 cp claude-readonly-hook/readonly-eval-check.py ~/.claude/hooks/
 ```
 
