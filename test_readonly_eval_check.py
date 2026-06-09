@@ -86,7 +86,7 @@ expect_approve('deno eval "console.log(Deno.version)"',                      "de
 
 section("Check A — inline eval blocked (mutating code)")
 expect_block('node -e "require(\'fs\').writeFileSync(\'x\',\'y\')"',         "node writeFileSync")
-expect_block('node -e "require(\'child_process\').exec(\'rm -rf /\')"',      "node child_process.exec")
+expect_block('node -e "require(\'child_process\').exec(\'rm /tmp/readonly-hook-test.txt\')"', "node child_process.exec")
 expect_block('node -e "require(\'child_process\').spawn(\'sh\',[],{})"',     "node child_process.spawn")
 expect_block('node -e "const {execSync}=require(\'child_process\');execSync(\'ls\')"', "node execSync")
 expect_block('node -e "fs.appendFileSync(\'log\',\'x\')"',                   "node appendFileSync")
@@ -167,7 +167,7 @@ expect_block('cat file.log | grep foo > out.txt',                            "re
 expect_block('cat file.log | tee output.txt',                                "tee writes file")
 expect_block('curl https://api.example.com | jq .',                         "curl blocked")
 expect_block('wget https://example.com/file',                               "wget blocked")
-expect_block('ls | rm -f',                                                   "rm in pipeline")
+expect_block('ls | rm /tmp/readonly-hook-test.txt',                          "rm in pipeline")
 expect_block('echo x | sudo tee /etc/hosts',                                 "sudo blocked")
 expect_block('cat file | sort -o sorted.txt',                                "sort -o writes")
 expect_block('cat file.log | awk \'{print $1}\'',                            "awk excluded")
@@ -198,6 +198,14 @@ expect_approve('date',                                                       "ba
 expect_approve('date "+%Y-%m-%d"',                                           "date with format — display only")
 expect_approve('date "+%s"',                                                 "date unix timestamp format")
 expect_block('date 0601120025',                                              "date positional — sets clock")
+
+section("Check B — backtick substitutions")
+expect_approve('echo `basename "$dir"`',                                    "backtick basename — safe")
+expect_approve('echo `date "+%Y-%m-%d"`',                                   "backtick date — safe")
+expect_block('echo `git add .`',                                            "backtick git add — mutating")
+expect_block('echo `git push origin main`',                                 "backtick git push — mutating")
+expect_block('echo `rm /tmp/readonly-hook-test.txt`',                       "backtick rm — mutating")
+expect_block('echo `node -e "require(\'fs\').writeFileSync(\'x\',\'y\')"`', "backtick mutating node -e")
 
 section("cd && for loop compound commands")
 expect_approve(
