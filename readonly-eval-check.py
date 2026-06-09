@@ -210,12 +210,12 @@ UNSAFE_SEGMENT_RE = re.compile(
     r"|\btee\b"
     r"|\bdd\b"
     r"|\binstall\b"
-    r"|>[^>&\d]",   # > file write, but not >&1 / >2 (fd redirects)
+    r"|(?<!\d)>[^>&\d]",  # > file write, but not 2>/dev/null or >&1 (fd redirects)
     re.IGNORECASE,
 )
 
-def split_segments(command: str) -> list:
-    """Split a shell command on |, ||, &&, ; — but NOT inside quoted strings."""
+def _quote_aware_split(command: str, two_char_ops, one_char_ops) -> list:
+    """Generic quote-aware splitter parameterised by operator sets."""
     segments = []
     current = []
     in_single = in_double = False
@@ -230,12 +230,12 @@ def split_segments(command: str) -> list:
             current.append(c)
         elif not in_single and not in_double:
             two = command[i:i + 2]
-            if two in ("&&", "||"):
+            if two in two_char_ops:
                 segments.append("".join(current))
                 current = []
                 i += 2
                 continue
-            elif c in ("|", ";"):
+            elif c in one_char_ops:
                 segments.append("".join(current))
                 current = []
             else:
@@ -246,6 +246,16 @@ def split_segments(command: str) -> list:
     if current:
         segments.append("".join(current))
     return segments
+
+
+def split_compound(command: str) -> list:
+    """Split on && and || only — keeps for..done blocks intact."""
+    return _quote_aware_split(command, {"&&", "||"}, set())
+
+
+def split_segments(command: str) -> list:
+    """Split on |, ||, &&, ; — used for for-loop body validation."""
+    return _quote_aware_split(command, {"&&", "||"}, {"|", ";"})
 
 
 def strip_substitutions(segment: str):
@@ -340,10 +350,22 @@ def is_safe_segment(segment: str) -> bool:
 
 
 def is_readonly_pipeline(command: str) -> bool:
-    """Return True only if every segment of the command uses a safe read-only tool."""
-    for segment in split_segments(command):
-        if not is_safe_segment(segment):
-            return False
+    """Return True only if every part of the command is read-only.
+
+    Two-level split:
+      1. Split on && / || to get compound parts — keeps for..done intact.
+      2. For each part, check for loop first; otherwise split on | / ; and
+         validate each segment individually.
+    """
+    for part in split_compound(command):
+        part = part.strip()
+        if not part:
+            continue
+        if is_readonly_for_loop(part):
+            continue
+        for segment in _quote_aware_split(part, set(), {"|", ";"}):
+            if not is_safe_segment(segment):
+                return False
     return True
 
 
