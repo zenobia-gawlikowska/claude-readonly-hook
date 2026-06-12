@@ -342,6 +342,10 @@ def is_safe_segment(segment: str) -> bool:
         non_flags = [t for t in args if not t.startswith("-")]
         # Strip surrounding quotes before checking for the + format prefix
         return all(t.strip("\"'").startswith("+") for t in non_flags)
+    elif lead == "find":
+        # Safe unless it uses flags that execute commands or delete files.
+        mutating_find_flags = {"-exec", "-execdir", "-delete", "-ok"}
+        return not any(t in mutating_find_flags for t in tokens[1:])
     elif lead in ("node", "bun", "python3", "python", "deno"):
         inline_code = extract_inline_code(segment.strip())
         return inline_code is not None and not is_mutating(inline_code)
