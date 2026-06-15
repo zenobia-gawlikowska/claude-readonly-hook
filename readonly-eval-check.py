@@ -209,7 +209,6 @@ UNSAFE_SEGMENT_RE = re.compile(
     r"|\bcurl\b|\bwget\b"
     r"|\btee\b"
     r"|\bdd\b"
-    r"|\binstall\b"
     r"|(?<!\d)>[^>&\d]",  # > file write, but not 2>/dev/null or >&1 (fd redirects)
     re.IGNORECASE,
 )
@@ -346,6 +345,14 @@ def is_safe_segment(segment: str) -> bool:
         # Safe unless it uses flags that execute commands or delete files.
         mutating_find_flags = {"-exec", "-execdir", "-delete", "-ok"}
         return not any(t in mutating_find_flags for t in tokens[1:])
+    elif lead == "sed":
+        # sed -i / --in-place edits files in-place; all other invocations are read-only.
+        for t in tokens[1:]:
+            if t == "--in-place":
+                return False
+            if t.startswith("-") and not t.startswith("--") and "i" in t[1:]:
+                return False
+        return True
     elif lead in ("node", "bun", "python3", "python", "deno"):
         inline_code = extract_inline_code(segment.strip())
         return inline_code is not None and not is_mutating(inline_code)
@@ -377,26 +384,45 @@ def is_readonly_pipeline(command: str) -> bool:
 # Check C: read-only for loop
 # ---------------------------------------------------------------------------
 
-# Matches:  for VAR in PATTERN; do BODY; done
+# Matches:  for VAR in PATTERN; do BODY; done [optional trailing content]
 # The body may contain semicolons and pipes — extracted as a group.
+# Trailing content (e.g. "2>/dev/null; echo hi") is captured separately.
 FOR_LOOP_RE = re.compile(
-    r"^for\s+\w+\s+in\s+[^;]+;\s*do\s+(.+);\s*done\s*$",
+    r"^for\s+\w+\s+in\s+[^;]+;\s*do\s+(.+);\s*done\b(.*)$",
     re.DOTALL,
 )
 
+# Matches a leading I/O redirect like "2>/dev/null", ">/dev/null", "2>&1".
+_REDIRECT_PREFIX_RE = re.compile(r"^\s*(?:\d*[<>]{1,2}(?:&?\S+)?)\s*")
+
 
 def is_readonly_for_loop(command: str) -> bool:
-    """Return True if a for loop iterates safely and its body is entirely read-only."""
+    """Return True if a for loop iterates safely and its body is entirely read-only.
+
+    Also validates any trailing content after 'done' (e.g. a stderr redirect
+    followed by more commands: 'done 2>/dev/null; echo hi').
+    """
     m = FOR_LOOP_RE.match(command.strip())
     if not m:
         return False
 
     body = m.group(1)  # everything between 'do' and '; done'
+    trailer = m.group(2).strip()
 
     # Validate every statement / pipeline in the body
     for segment in split_segments(body):
         if not is_safe_segment(segment):
             return False
+
+    # Validate trailer — strip a leading I/O redirect that applies to the
+    # loop itself (e.g. "2>/dev/null"), then validate any remaining commands.
+    if trailer:
+        trailer = _REDIRECT_PREFIX_RE.sub("", trailer).strip()
+        if trailer.startswith(";"):
+            trailer = trailer[1:].strip()
+        for segment in split_segments(trailer):
+            if not is_safe_segment(segment):
+                return False
 
     return True
 

@@ -171,7 +171,15 @@ expect_block('ls | rm /tmp/readonly-hook-test.txt',                          "rm
 expect_block('echo x | sudo tee /etc/hosts',                                 "sudo blocked")
 expect_block('cat file | sort -o sorted.txt',                                "sort -o writes")
 expect_block('cat file.log | awk \'{print $1}\'',                            "awk excluded")
-expect_block('cat file.txt | sed \'s/foo/bar/\'',                            "sed excluded")
+expect_approve('sed -n \'1,12p\' file.txt',                                  "sed -n read-only")
+expect_approve('sed -n \'1,40p\' install.sh',                                "sed -n positional range")
+expect_approve('cat file.txt | sed -n \'s/foo/bar/p\'',                     "sed -n in pipeline")
+expect_approve('sed -nE \'s/foo/bar/p\' file.txt',                          "sed -nE combined flag")
+expect_block('sed -i \'s/foo/bar/\' file.txt',                              "sed -i in-place — blocked")
+expect_block('sed -i.bak \'s/foo/bar/\' file.txt',                         "sed -i.bak in-place — blocked")
+expect_block('sed --in-place \'s/foo/bar/\' file.txt',                     "sed --in-place — blocked")
+expect_block('sed -ni \'s/foo/bar/p\' file.txt',                           "sed -ni combined in-place — blocked")
+expect_approve('cat file.txt | sed \'s/foo/bar/\'',                         "sed without -n still read-only (stdout only)")
 expect_block('fd -e log --exec cat {}',                                      "fd --exec")
 expect_block('diff --output=patch.diff a.txt b.txt',                         "diff --output")
 expect_block('ls; git push origin main',                                     "; git push")
@@ -270,6 +278,32 @@ expect_block(
 expect_block(
     'for f in *.ts; do node -e "require(\'fs\').writeFileSync(\'x\',\'y\')"; done',
     "for loop: mutating node -e in body",
+)
+
+section("Check C — for loops with trailing content after done")
+expect_approve(
+    'for f in skills/*/SKILL.md; do echo "--- $f ---"; sed -n \'1,12p\' "$f" | grep -E \'^x:\'; done 2>/dev/null',
+    "for loop with body sed -n | grep + done 2>/dev/null",
+)
+expect_approve(
+    'for f in skills/*/SKILL.md; do echo "--- $f ---"; sed -n \'1,12p\' "$f" | grep -E \'^x:\'; done 2>/dev/null; echo "=== done ==="',
+    "for loop + done 2>/dev/null; echo trailer",
+)
+expect_approve(
+    'for f in *.txt; do cat "$f"; done 2>/dev/null',
+    "for loop + done 2>/dev/null only",
+)
+expect_approve(
+    'for f in *.txt; do echo "$f"; done | head -20',
+    "for loop output piped to head",
+)
+expect_block(
+    'for f in *.txt; do cat "$f"; done 2>/dev/null; rm /tmp/x',
+    "for loop + safe trailer then rm — blocked",
+)
+expect_block(
+    'for f in *.txt; do rm "$f"; done 2>/dev/null',
+    "for loop with rm in body + done 2>/dev/null — blocked",
 )
 
 section("Hook ignores non-Bash tools")
